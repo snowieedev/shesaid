@@ -1,69 +1,229 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import { Header } from "@/components/Header";
+import { Hero } from "@/components/Hero";
+import { TranslationForm } from "@/components/TranslationForm";
+import { LoadingState } from "@/components/LoadingState";
+import { TranslationResult } from "@/components/TranslationResult";
+import { HowItWorksModal } from "@/components/HowItWorksModal";
+import { AboutModal } from "@/components/AboutModal";
+import { RecentHistory } from "@/components/RecentHistory";
+import { Footer } from "@/components/Footer";
+import {
+  TranslationRequest,
+  TranslationResponse,
+  StoredTranslation,
+} from "@/types/translation";
+
+const STORAGE_KEY = "shesaid_history_v1";
 
 export default function Home() {
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<TranslationResponse | null>(null);
+  const [activeMessage, setActiveMessage] = useState<string>("");
+  const [activeContext, setActiveContext] = useState<string | undefined>(undefined);
+  const [activeRelationship, setActiveRelationship] = useState<string | undefined>(
+    undefined
+  );
+
+  const [history, setHistory] = useState<StoredTranslation[]>([]);
+  const [isHowItWorksOpen, setIsHowItWorksOpen] = useState<boolean>(false);
+  const [isAboutOpen, setIsAboutOpen] = useState<boolean>(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+
+  const resultRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+
+  // Load history from localStorage safely on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        setHistory(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn("Failed to load history from localStorage:", e);
+    }
+  }, []);
+
+  const saveToHistory = (
+    newResult: TranslationResponse,
+    msg: string,
+    ctx?: string,
+    rel?: string
+  ) => {
+    try {
+      const entry: StoredTranslation = {
+        ...newResult,
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        originalMessage: msg,
+        context: ctx,
+        relationship: rel,
+        createdAt: Date.now(),
+      };
+      const updated = [entry, ...history.filter((h) => h.originalMessage !== msg)].slice(
+        0,
+        25
+      );
+      setHistory(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Failed to save translation to history:", e);
+    }
+  };
+
+  const handleClearHistory = () => {
+    setHistory([]);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {
+      console.warn("Failed to clear history:", e);
+    }
+  };
+
+  const handleDeleteHistoryItem = (id: string) => {
+    const updated = history.filter((item) => item.id !== id);
+    setHistory(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Failed to update history:", e);
+    }
+  };
+
+  const handleSelectHistoryItem = (item: StoredTranslation) => {
+    setActiveMessage(item.originalMessage);
+    setActiveContext(item.context);
+    setActiveRelationship(item.relationship);
+    setResult({
+      translation: item.translation,
+      possibleEmotion: item.possibleEmotion,
+      alternativeMeaning: item.alternativeMeaning,
+      suggestedReply: item.suggestedReply,
+      funnyVersion: item.funnyVersion,
+      confidence: item.confidence,
+    });
+    setError(null);
+
+    setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
+  };
+
+  const handleDecode = async (data: {
+    message: string;
+    context?: string;
+    relationship?: string;
+  }) => {
+    setIsLoading(true);
+    setError(null);
+    setActiveMessage(data.message);
+    setActiveContext(data.context);
+    setActiveRelationship(data.relationship);
+
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      const responseData = await res.json();
+
+      if (!res.ok) {
+        throw new Error(responseData.error || "Decoding failed. Please try again.");
+      }
+
+      setResult(responseData);
+      saveToHistory(responseData, data.message, data.context, data.relationship);
+
+      // Smooth scroll to result section
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    } catch (err: unknown) {
+      const errMsg =
+        err instanceof Error ? err.message : "An unexpected error occurred.";
+      setError(errMsg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleReset = () => {
+    setResult(null);
+    setError(null);
+    formRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 selection:bg-sky-500 selection:text-white transition-colors duration-200">
+      {/* Navigation Bar */}
+      <Header
+        onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
+        onOpenAbout={() => setIsAboutOpen(true)}
+        onOpenHistory={() => setIsHistoryOpen(true)}
+        historyCount={history.length}
+      />
+
+      {/* Main Container */}
+      <main className="flex-1 pb-16">
+        {/* Hero Section */}
+        <Hero />
+
+        {/* Form Container */}
+        <div ref={formRef} className="pt-2">
+          <TranslationForm
+            onSubmit={handleDecode}
+            isLoading={isLoading}
+            error={error}
+          />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+
+        {/* Loading Spinner / Humorous Cycling Messages */}
+        {isLoading && <LoadingState />}
+
+        {/* Results Card */}
+        {result && !isLoading && (
+          <div ref={resultRef}>
+            <TranslationResult
+              result={result}
+              originalMessage={activeMessage}
+              context={activeContext}
+              relationship={activeRelationship}
+              onReset={handleReset}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+          </div>
+        )}
       </main>
+
+      {/* Footer */}
+      <Footer
+        onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
+        onOpenAbout={() => setIsAboutOpen(true)}
+      />
+
+      {/* Modals and Drawers */}
+      <HowItWorksModal
+        isOpen={isHowItWorksOpen}
+        onClose={() => setIsHowItWorksOpen(false)}
+      />
+
+      <AboutModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+      />
+
+      <RecentHistory
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        history={history}
+        onSelect={handleSelectHistoryItem}
+        onClear={handleClearHistory}
+        onDelete={handleDeleteHistoryItem}
+      />
     </div>
   );
 }
