@@ -100,10 +100,19 @@ export async function translateMessage(
   request: TranslationRequest
 ): Promise<TranslationResponse> {
   const apiKey = process.env.API_KEY?.trim();
-  const baseUrl = (
-    process.env.API_BASE_URL?.trim() || "https://api.apinext.bond/v1"
+  let baseUrl = (
+    process.env.API_BASE_URL?.trim() || "https://apinext.bond/v1"
   ).replace(/\/+$/, "");
-  const model = process.env.AI_MODEL?.trim() || "gpt-4o-mini";
+
+  // Auto-normalize api.apinext.bond to apinext.bond if entered with api. prefix
+  if (baseUrl.includes("api.apinext.bond")) {
+    baseUrl = baseUrl.replace("api.apinext.bond", "apinext.bond");
+  }
+
+  const configuredModel = process.env.AI_MODEL?.trim() || "free/minimax-m3.1-flash";
+  const candidateModels = Array.from(
+    new Set([configuredModel, "free/minimax-m3.1-flash", "free/hy4", "gemini-3.8-flash", "gpt-4o-mini"])
+  );
 
   // Check if API key is missing or dummy placeholder
   const isKeyPlaceholder =
@@ -128,53 +137,53 @@ export async function translateMessage(
 
   const endpoint = `${baseUrl}/chat/completions`;
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout
+  // Try candidate models in order before falling back
+  for (const model of candidateModels) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout per candidate
 
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 800,
-        response_format: { type: "json_object" },
-      }),
-      signal: controller.signal,
-    });
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 800,
+          response_format: { type: "json_object" },
+        }),
+        signal: controller.signal,
+      });
 
-    clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.warn(
-        `[SheSaid AI Service] API returned status ${res.status}: ${errorText}. Falling back to heuristic decoder.`
-      );
-      return generateHeuristicTranslation(request);
+      if (res.ok) {
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content;
+        if (content) {
+          const cleaned = cleanJsonString(content);
+          const parsed = JSON.parse(cleaned);
+          return validateResponse(parsed);
+        }
+      } else {
+        const errorText = await res.text();
+        console.warn(
+          `[SheSaid AI Service] Model '${model}' returned status ${res.status}: ${errorText}`
+        );
+      }
+    } catch (err: unknown) {
+      console.warn(`[SheSaid AI Service] Error trying model '${model}':`, err);
     }
-
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-
-    if (!content) {
-      console.warn("[SheSaid AI Service] No choice content returned. Using fallback.");
-      return generateHeuristicTranslation(request);
-    }
-
-    const cleaned = cleanJsonString(content);
-    const parsed = JSON.parse(cleaned);
-    return validateResponse(parsed);
-  } catch (err: unknown) {
-    console.error("[SheSaid AI Service] Error during LLM completion:", err);
-    // If the remote API fails or times out, safely return our intelligent heuristic decoder
-    return generateHeuristicTranslation(request);
   }
+
+  // If remote models fail or are temporarily unavailable, fallback to heuristic decoder
+  console.info("[SheSaid AI Service] Using smart heuristic fallback.");
+  return generateHeuristicTranslation(request);
 }
