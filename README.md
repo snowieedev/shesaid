@@ -2,6 +2,8 @@
 
 > **"She said what?"** — Confused by that message? Let's decode it. 👀
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsnowieedev%2Fshesaid&env=API_BASE_URL,API_KEY,AI_MODEL&envDescription=Configure%20APINext.bond%20API%20Credentials&project-name=shesaid&repository-name=shesaid)
+
 **SheSaid** is a fun, modern, AI-powered entertainment web tool that humorously decodes confusing conversational texts and cryptic messages into simpler, more understandable language. 
 
 The app is witty, clever, slightly sarcastic, but genuinely empathetic and grounded. It never assumes all women communicate the same way, acknowledges situational uncertainty, and offers sensible, constructive replies to keep communication positive.
